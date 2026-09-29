@@ -1,9 +1,25 @@
+from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
 from palimpsest.collection.filesystem import FilesystemCollector
-from palimpsest.domain.asset import Asset, AssetKind
+from palimpsest.domain.artifact import Artifact
+from palimpsest.domain.asset import Asset, AssetIdentity, AssetKind
+
+SCAN_ID = UUID(hex="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+ARTIFACT_ID = UUID(hex="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+
+COLLECTED_AT = datetime(
+    year=2026,
+    month=9,
+    day=29,
+    hour=13,
+    minute=0,
+    tzinfo=UTC,
+)
 
 
 # Temporary dummy paths / assets
@@ -156,4 +172,221 @@ def test_rejects_file_as_root(tmp_path: Path) -> None:
         collector.discover_assets(
             root=file_path,
             source_namespace="filesystem:merewell",
+        )
+
+
+def test_collects_exact_file_bytes(tmp_path: Path) -> None:
+    content = b"SELECT * FROM stg_customer;\n"
+
+    (tmp_path / "load.sql").write_bytes(data=content)
+
+    collector = FilesystemCollector()
+
+    assets: tuple[Asset, ...] = collector.discover_assets(
+        root=tmp_path,
+        source_namespace="filesystem:merewell",
+    )
+
+    artifact: Artifact = collector.collect_artifact(
+        root=tmp_path,
+        source_namespace="filesystem:merewell",
+        asset=assets[0],
+        scan_id=SCAN_ID,
+        artifact_id=ARTIFACT_ID,
+        collected_at=COLLECTED_AT,
+    )
+
+    assert artifact.content == content
+    assert artifact.content_hash == sha256(content).hexdigest()
+
+
+def test_collected_artifact_preserves_provenance(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "load.sql").write_text(
+        data="SELECT 1;",
+        encoding="utf-8",
+    )
+
+    collector = FilesystemCollector()
+
+    asset: Asset = collector.discover_assets(
+        root=tmp_path,
+        source_namespace="filesystem:merewell",
+    )[0]
+
+    artifact: Artifact = collector.collect_artifact(
+        root=tmp_path,
+        source_namespace="filesystem:merewell",
+        asset=asset,
+        scan_id=SCAN_ID,
+        artifact_id=ARTIFACT_ID,
+        collected_at=COLLECTED_AT,
+    )
+
+    assert artifact.asset == asset
+    assert artifact.scan_id == SCAN_ID
+    assert artifact.artifact_id == ARTIFACT_ID
+    assert artifact.collected_at == COLLECTED_AT
+    assert artifact.content_type == "text/x-sql"
+
+
+def test_collects_empty_file_as_valid_evidence(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "empty.sql").write_bytes(data=b"")
+
+    collector = FilesystemCollector()
+
+    asset: Asset = collector.discover_assets(
+        root=tmp_path,
+        source_namespace="filesystem:merewell",
+    )[0]
+
+    artifact: Artifact = collector.collect_artifact(
+        root=tmp_path,
+        source_namespace="filesystem:merewell",
+        asset=asset,
+        scan_id=SCAN_ID,
+        artifact_id=ARTIFACT_ID,
+        collected_at=COLLECTED_AT,
+    )
+
+    assert artifact.content == b""
+
+
+def test_recollection_detects_changed_content(
+    tmp_path: Path,
+) -> None:
+    path: Path = tmp_path / "load.sql"
+    path.write_text(
+        data="SELECT 1;",
+        encoding="utf-8",
+    )
+
+    collector = FilesystemCollector()
+
+    asset: Asset = collector.discover_assets(
+        root=tmp_path,
+        source_namespace="filesystem:merewell",
+    )[0]
+
+    first: Artifact = collector.collect_artifact(
+        root=tmp_path,
+        source_namespace="filesystem:merewell",
+        asset=asset,
+        scan_id=UUID(hex="11111111-1111-1111-1111-111111111111"),
+        artifact_id=UUID(hex="22222222-2222-2222-2222-222222222222"),
+        collected_at=COLLECTED_AT,
+    )
+
+    path.write_text(
+        data="SELECT customer_id FROM customer;",
+        encoding="utf-8",
+    )
+
+    second: Artifact = collector.collect_artifact(
+        root=tmp_path,
+        source_namespace="filesystem:merewell",
+        asset=asset,
+        scan_id=UUID(hex="33333333-3333-3333-3333-333333333333"),
+        artifact_id=UUID(hex="44444444-4444-4444-4444-444444444444"),
+        collected_at=COLLECTED_AT,
+    )
+
+    assert first.asset == second.asset
+    assert first.content_hash != second.content_hash
+
+
+def test_rejects_asset_from_different_namespace(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "load.sql").write_text(
+        data="SELECT 1;",
+        encoding="utf-8",
+    )
+
+    collector = FilesystemCollector()
+
+    asset: Asset = collector.discover_assets(
+        root=tmp_path,
+        source_namespace="filesystem:merewell",
+    )[0]
+
+    with pytest.raises(
+        expected_exception=ValueError,
+        match="source namespace does not match",
+    ):
+        collector.collect_artifact(
+            root=tmp_path,
+            source_namespace="filesystem:another-system",
+            asset=asset,
+            scan_id=SCAN_ID,
+            artifact_id=ARTIFACT_ID,
+            collected_at=COLLECTED_AT,
+        )
+
+
+def test_rejects_asset_kind_that_disagrees_with_file(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "ingest.py").write_text(
+        data="print('hello')",
+        encoding="utf-8",
+    )
+
+    incorrect_asset = Asset(
+        identity=AssetIdentity(
+            kind=AssetKind.SQL_SCRIPT,
+            source_namespace="filesystem:merewell",
+            locator="ingest.py",
+        )
+    )
+
+    collector = FilesystemCollector()
+
+    with pytest.raises(
+        expected_exception=ValueError,
+        match="asset kind does not match",
+    ):
+        collector.collect_artifact(
+            root=tmp_path,
+            source_namespace="filesystem:merewell",
+            asset=incorrect_asset,
+            scan_id=SCAN_ID,
+            artifact_id=ARTIFACT_ID,
+            collected_at=COLLECTED_AT,
+        )
+
+
+def test_rejects_locator_that_escapes_collection_root(
+    tmp_path: Path,
+) -> None:
+    outside: Path = tmp_path.parent / "outside.sql"
+    outside.write_text(
+        data="SELECT secret;",
+        encoding="utf-8",
+    )
+
+    asset = Asset(
+        identity=AssetIdentity(
+            kind=AssetKind.SQL_SCRIPT,
+            source_namespace="filesystem:merewell",
+            locator="../outside.sql",
+        )
+    )
+
+    collector = FilesystemCollector()
+
+    with pytest.raises(
+        expected_exception=ValueError,
+        match="escapes collection root",
+    ):
+        collector.collect_artifact(
+            root=tmp_path,
+            source_namespace="filesystem:merewell",
+            asset=asset,
+            scan_id=SCAN_ID,
+            artifact_id=ARTIFACT_ID,
+            collected_at=COLLECTED_AT,
         )
