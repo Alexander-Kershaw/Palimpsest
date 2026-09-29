@@ -20,6 +20,28 @@ class AssetKind(StrEnum):
     Controlling vocabulary like this keeps everything controlled and avoids continually
     inventing equivalent concepts e.g "db-table", "database_table" etc... just "table" is fine
 
+    --------------------------------------------------------------------------------------------------
+
+    Have both scheduled_job and scheduler_definition, the job and defintion may be distinct
+    so having an AssetKind attribute for both is ideal, useful for distinguishing:
+
+        scheduler definition file
+                |
+                ↓ parsing/extraction
+                |
+        scheduled job asset
+
+
+    Example:
+
+        scheduler/crontab.txt
+                kind = SCHEDULER_DEFINITION
+                    │
+                    │ parsed later
+                    ▼
+        nightly_customer_import
+            kind = SCHEDULED_JOB
+
     ==================================================================================================
     """
 
@@ -29,6 +51,7 @@ class AssetKind(StrEnum):
     PYTHON_SCRIPT = "python_script"
     DATA_FILE = "data_file"
     SCHEDULED_JOB = "scheduled_job"
+    SCHEDULER_DEFINITION = "scheduler_definition"
     DOCUMENT = "document"
 
 
