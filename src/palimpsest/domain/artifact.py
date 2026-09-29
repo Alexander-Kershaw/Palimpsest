@@ -1,16 +1,16 @@
 from dataclasses import dataclass, field
-from datetime import datetime 
+from datetime import datetime
 from hashlib import sha256
 from uuid import UUID
 
 from palimpsest.domain.asset import Asset
 
+
 @dataclass(frozen=True, slots=True)
 class Artifact:
-
     """
     ==========================================================================================
-    
+
     ARTIFACT OBJECT
 
     ==========================================================================================
@@ -20,7 +20,7 @@ class Artifact:
     Palimpsest discovers Assets with its Scan protocol. Artifacts represent the evidential
     content within an Asset found in a Scan.
 
-    Consider Palimpsest doscovers an Asset like a SQL script. Also consider 2 scans, Scan A 
+    Consider Palimpsest doscovers an Asset like a SQL script. Also consider 2 scans, Scan A
     and Scan B.
 
     The same Asset can have different content over the different Scans, yielding different
@@ -41,7 +41,7 @@ class Artifact:
 
     ------------------------------------------------------------------------------------------
 
-    Regarding Artifacts themselves, an artifact has two different kinds of identity 
+    Regarding Artifacts themselves, an artifact has two different kinds of identity
     information: the Artifact ID, and the content hash.
 
     The content hash IS NOT the same as the artifact ID
@@ -78,7 +78,7 @@ class Artifact:
             │
             └── snapshot of → Asset
 
-    Note: storing raw bytes for now rather than string representation of the Artifact 
+    Note: storing raw bytes for now rather than string representation of the Artifact
     contents. raw bytes are stronger evidence. The later structure intended is:
 
         Collector → Artifact bytes
@@ -95,7 +95,7 @@ class Artifact:
     content: bytes
     content_hash: str = field(init=False)
 
-    def __post_init__(self) -> None: 
+    def __post_init__(self) -> None:
 
         self._require_timezone_aware(self.collected_at)
 
@@ -103,12 +103,14 @@ class Artifact:
             raise ValueError("content_type cannot be blank")
 
         if self.content_type != self.content_type.strip():
-            raise ValueError("content_type cannot contain leading or trailing whitespace")
+            raise ValueError(
+                "content_type cannot contain leading or trailing whitespace"
+            )
 
         object.__setattr__(
             self,
             "content_hash",
-            sha256(self.content).hexdigest() # deterministic SHA hashing
+            sha256(self.content).hexdigest(),  # deterministic SHA hashing
         )
 
     @staticmethod

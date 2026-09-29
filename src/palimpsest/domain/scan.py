@@ -6,7 +6,6 @@ from uuid import UUID
 
 
 class ScanStatus(StrEnum):
-
     # A scan can take these 3 states
     RUNNING = "running"
     COMPLETED = "completed"
@@ -15,10 +14,9 @@ class ScanStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Scan:
-    
     """
     ==================================================================================================
-    
+
     A scan has the following attributes:
 
     - scan_id: the unique identifier of the scan run
@@ -26,7 +24,7 @@ class Scan:
     - status: the state of the scan
     - completed_at: when a scan was concluded
 
-    a scan state is not static, it changes, however each individual state representation is 
+    a scan state is not static, it changes, however each individual state representation is
     immutable. With Palimpsest, I care a lot about data history, provenance, and reproducibility
     so mutating states is not ideal as its bascially and overwrite.
 
@@ -64,19 +62,13 @@ class Scan:
             )
 
             if self.completed_at < self.started_at:
-                raise ValueError(
-                    "completed_at cannot be earlier than started_at"
-                )
+                raise ValueError("completed_at cannot be earlier than started_at")
 
         if self.status is ScanStatus.RUNNING and self.completed_at is not None:
-            raise ValueError(
-                "a running scan cannot have completed_at set"
-            )
+            raise ValueError("a running scan cannot have completed_at set")
 
         if self.status is not ScanStatus.RUNNING and self.completed_at is None:
-            raise ValueError(
-                "a finished scan must have completed_at set"
-            )
+            raise ValueError("a finished scan must have completed_at set")
 
     def complete(self, *, at: datetime) -> Self:
         # The completed state of a scan
@@ -124,7 +116,7 @@ class Scan:
         across: servers, databases, repos, regions, etc...
 
         Not UTC specifically, I can standardize that later
-        
+
         """
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError(f"{field_name} must be timezone aware")
