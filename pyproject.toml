@@ -7,7 +7,9 @@ authors = [
     { name = "Alexander-Kershaw", email = "akershaw@cloud-9.earth" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "sqlglot>=30.20.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.11.32,<0.12.0"]
