@@ -262,3 +262,240 @@ def test_insert_can_read_and_write_same_table() -> None:
         Predicate.READS_FROM,
         Predicate.WRITES_TO,
     }
+
+
+def test_update_reads_and_writes_target_table() -> None:
+    statements: tuple[Expression, ...] = parse_sql(
+        """
+        UPDATE customer
+        SET status = 'INACTIVE'
+        WHERE last_order_date < CURRENT_DATE
+        """
+    )
+
+    observations: tuple[Observation, ...] = SqlDependencyExtractor().extract(
+        statements=statements,
+        subject=SCRIPT,
+        artifact_id=ARTIFACT_ID,
+        relation_namespace=RELATION_NAMESPACE,
+    )
+
+    relationships: set[tuple[Predicate, str]] = {
+        (
+            observation.predicate,
+            observation.object.identity.locator,
+        )
+        for observation in observations
+    }
+
+    assert relationships == {
+        (Predicate.READS_FROM, "customer"),
+        (Predicate.WRITES_TO, "customer"),
+    }
+
+
+def test_update_from_extracts_source_and_target_dependencies() -> None:
+    statements: tuple[Expression, ...] = parse_sql(
+        sql="""
+        UPDATE customer
+        SET status = staging.status
+        FROM staging
+        WHERE customer.customer_id = staging.customer_id
+        """,
+        dialect="postgres",
+    )
+
+    observations: tuple[Observation, ...] = SqlDependencyExtractor().extract(
+        statements=statements,
+        subject=SCRIPT,
+        artifact_id=ARTIFACT_ID,
+        relation_namespace=RELATION_NAMESPACE,
+    )
+
+    relationships: set[tuple[Predicate, str]] = {
+        (
+            observation.predicate,
+            observation.object.identity.locator,
+        )
+        for observation in observations
+    }
+
+    assert relationships == {
+        (Predicate.READS_FROM, "customer"),
+        (Predicate.READS_FROM, "staging"),
+        (Predicate.WRITES_TO, "customer"),
+    }
+
+
+def test_delete_reads_and_writes_target_table() -> None:
+    statements: tuple[Expression, ...] = parse_sql(
+        sql="""
+        DELETE FROM customer
+        WHERE is_duplicate = TRUE
+        """
+    )
+
+    observations: tuple[Observation, ...] = SqlDependencyExtractor().extract(
+        statements=statements,
+        subject=SCRIPT,
+        artifact_id=ARTIFACT_ID,
+        relation_namespace=RELATION_NAMESPACE,
+    )
+
+    relationships: set[tuple[Predicate, str]] = {
+        (
+            observation.predicate,
+            observation.object.identity.locator,
+        )
+        for observation in observations
+    }
+
+    assert relationships == {
+        (Predicate.READS_FROM, "customer"),
+        (Predicate.WRITES_TO, "customer"),
+    }
+
+
+def test_delete_using_extracts_additional_read_dependency() -> None:
+    statements: tuple[Expression, ...] = parse_sql(
+        sql="""
+        DELETE FROM customer
+        USING duplicate_customer
+        WHERE customer.customer_id =
+              duplicate_customer.customer_id
+        """,
+        dialect="postgres",
+    )
+
+    observations: tuple[Observation, ...] = SqlDependencyExtractor().extract(
+        statements=statements,
+        subject=SCRIPT,
+        artifact_id=ARTIFACT_ID,
+        relation_namespace=RELATION_NAMESPACE,
+    )
+
+    relationships: set[tuple[Predicate, str]] = {
+        (
+            observation.predicate,
+            observation.object.identity.locator,
+        )
+        for observation in observations
+    }
+
+    assert relationships == {
+        (Predicate.READS_FROM, "customer"),
+        (
+            Predicate.READS_FROM,
+            "duplicate_customer",
+        ),
+        (Predicate.WRITES_TO, "customer"),
+    }
+
+
+def test_create_table_extracts_write_dependency() -> None:
+    statements: tuple[Expression, ...] = parse_sql(
+        sql="""
+        CREATE TABLE customer_archive (
+            customer_id INTEGER,
+            archived_at TIMESTAMP
+        )
+        """
+    )
+
+    observations: tuple[Observation, ...] = SqlDependencyExtractor().extract(
+        statements=statements,
+        subject=SCRIPT,
+        artifact_id=ARTIFACT_ID,
+        relation_namespace=RELATION_NAMESPACE,
+    )
+
+    relationships: set[tuple[Predicate, str]] = {
+        (
+            observation.predicate,
+            observation.object.identity.locator,
+        )
+        for observation in observations
+    }
+
+    assert relationships == {
+        (
+            Predicate.WRITES_TO,
+            "customer_archive",
+        ),
+    }
+
+
+def test_ctas_extracts_read_and_write_dependencies() -> None:
+    statements: tuple[Expression, ...] = parse_sql(
+        sql="""
+        CREATE TABLE customer_archive AS
+        SELECT *
+        FROM customer
+        """
+    )
+
+    observations: tuple[Observation, ...] = SqlDependencyExtractor().extract(
+        statements=statements,
+        subject=SCRIPT,
+        artifact_id=ARTIFACT_ID,
+        relation_namespace=RELATION_NAMESPACE,
+    )
+
+    relationships: set[tuple[Predicate, str]] = {
+        (
+            observation.predicate,
+            observation.object.identity.locator,
+        )
+        for observation in observations
+    }
+
+    assert relationships == {
+        (
+            Predicate.READS_FROM,
+            "customer",
+        ),
+        (
+            Predicate.WRITES_TO,
+            "customer_archive",
+        ),
+    }
+
+
+def test_ctas_with_cte_only_reads_physical_source() -> None:
+    statements: tuple[Expression, ...] = parse_sql(
+        sql="""
+        CREATE TABLE customer_archive AS
+        WITH eligible AS (
+            SELECT *
+            FROM customer
+        )
+        SELECT *
+        FROM eligible
+        """
+    )
+
+    observations: tuple[Observation, ...] = SqlDependencyExtractor().extract(
+        statements=statements,
+        subject=SCRIPT,
+        artifact_id=ARTIFACT_ID,
+        relation_namespace=RELATION_NAMESPACE,
+    )
+
+    relationships: set[tuple[Predicate, str]] = {
+        (
+            observation.predicate,
+            observation.object.identity.locator,
+        )
+        for observation in observations
+    }
+
+    assert relationships == {
+        (
+            Predicate.READS_FROM,
+            "customer",
+        ),
+        (
+            Predicate.WRITES_TO,
+            "customer_archive",
+        ),
+    }
